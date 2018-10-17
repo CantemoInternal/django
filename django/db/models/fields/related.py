@@ -808,6 +808,10 @@ class ForeignKey(ForeignObject):
             # be correct until contribute_to_class is called. Refs #12190.
             to_field = to_field or (to._meta.pk and to._meta.pk.name)
 
+        # we need to check if this attribute hasn't been already set by the OneToOneField
+        if not hasattr(self, 'on_delete_parameter_is_none'):
+            self.on_delete_parameter_is_none = on_delete is None
+
         if on_delete is None:
             warnings.warn(
                 "on_delete will be a required arg for %s in Django 2.0. Set "
@@ -855,7 +859,20 @@ class ForeignKey(ForeignObject):
 
     def _check_on_delete(self):
         on_delete = getattr(self.remote_field, 'on_delete', None)
-        if on_delete == SET_NULL and not self.null:
+
+        if self.on_delete_parameter_is_none:
+            return [
+                # Portal ticket #17716: Make on_delete attribute required as in Django 2.0 to avoid
+                # unexpected behaviours caused by the default on_delete action
+                checks.Error(
+                    'ForeignKey field does not specify an explicit on_delete action.',
+                    hint='Set the on_delete argument on the field, more info at '
+                         'https://docs.djangoproject.com/en/1.11/ref/models/fields/#django.db.models.'
+                         'ForeignKey.on_delete',
+                    obj=self,
+                )
+            ]
+        elif on_delete == SET_NULL and not self.null:
             return [
                 checks.Error(
                     'Field specifies on_delete=SET_NULL, but cannot be null.',
@@ -1031,6 +1048,8 @@ class OneToOneField(ForeignKey):
     def __init__(self, to, on_delete=None, to_field=None, **kwargs):
         kwargs['unique'] = True
 
+
+        self.on_delete_parameter_is_none = on_delete is None
         if on_delete is None:
             warnings.warn(
                 "on_delete will be a required arg for %s in Django 2.0. Set "
